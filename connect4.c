@@ -9,14 +9,14 @@
 #define EMPTY 0
 #define DRAW 3
 #define INPROGRESS 4
-#define WINNUM 4
+#define WINNUM 3
 #define VALID 1
 #define INVALID 0
 
-#define INFINITY 100
+#define INFINITY 9999
 
-#define NROWS 6
-#define NCOLS 7
+#define NROWS 4
+#define NCOLS 5
 
 #define SCALE "\n1 2 3 4 5 6 7\n"
 
@@ -25,7 +25,6 @@
 typedef int board[NCOLS][NROWS];
 
 // Function Prototypes
-
 
 int gameLoop(board);
 void printBoard(board);
@@ -40,11 +39,14 @@ void reverseMoveBoard(board, int);
 int moveMinimax(board);
 int minimax(board, int, int, int, int, int);
 int isValidMove(board, int);
+int isPlayerValidMove(board, int);
 int checkResult(int);
+int evalTerminalState(int, int);
 int max(int a, int b);
 int min(int a, int b);
 int maxVal(board, int, int , int, int);
 int minVal(board, int, int , int, int);
+
 
 
 
@@ -120,27 +122,29 @@ int* convertStringToIntegerArray(char* c, int *n)
 int gameLoop(board b)
 {
     int status = INPROGRESS;
+    int result;
 
     printBoard(b);
     while (status == INPROGRESS)
     {
         // Get player turn
-        int playerTurn;
-        playerTurn = getPlayerTurn(b);
+        int playerTurn = getPlayerTurn(b);
 
         // Player move
         updateBoard(b, playerTurn, PLAYER);
         printBoard(b);
 
         // Score board
-        if (scoreBoard(b, playerTurn, PLAYER) == PLAYER) return PLAYER;
+        result = scoreBoard(b, playerTurn, PLAYER);
+        if (result != INPROGRESS) return result;
+       
+        // Get AI turn
+        int aiTurn = getAiTurn(b);
 
-        int aiTurn;
-        aiTurn = getAiTurn(b);
-
-        updateBoard(b, aiTurn, AI);
+        updateBoard(b, aiTurn, AI); 
         printBoard(b);
-        if (scoreBoard(b, aiTurn, AI) == AI) return AI;
+        result = scoreBoard(b, aiTurn, AI);
+        if (result != INPROGRESS) return result;
     }
     return status;
 }
@@ -159,6 +163,7 @@ void printBoard(board b)
     printf(SCALE);
 }
 
+// Initialise empty board
 void initialiseBoard(board b)
 {
     for (int i = 0; i < NROWS; i++)
@@ -166,6 +171,7 @@ void initialiseBoard(board b)
             b[j][i] = EMPTY;
 }
 
+// Generate the board given in the 'game' array
 void initialiseSpecificBoard(board b, int *game, int n)
 {
     int player = PLAYER;
@@ -182,29 +188,20 @@ void initialiseSpecificBoard(board b, int *game, int n)
 // Gets the players turn and validates it
 int getPlayerTurn(board b)
 {
-    int turn;
+    int move;
     printf("Enter move: ");
-    scanf("%d", &turn);
+    scanf("%d", &move);
 
-    // must subtract 1 from the turn because the computer board representation 
-    // is zero-indexed whereas the player representation is one-indexed
-    turn--;
-    // If column number is greater than board size,
-    // move is invalid
-    if (turn > NCOLS - 1)
-    {
-        printf("invalid move, column out of board range\n");
-        turn = getPlayerTurn(b);
-    }
+    /*
+      must subtract 1 from the turn because the computer board representation 
+      is zero-indexed whereas the player representation is one-indexed
+    */
+    move--;
 
-    // If column is full move is invalid
-    else if (b[turn][NROWS - 1] != EMPTY)
-    {
-        printf("invalid move, column full\n");
-        turn = getPlayerTurn(b);
-    }
+    if (!isPlayerValidMove(b, move))
+        return getPlayerTurn(b);
 
-    return turn;
+    return move;
 }
 
 // Only check if the last Player has won, because if the previous player didn't
@@ -217,16 +214,14 @@ int scoreBoard(board b, int lastTurn, int lastPlayer)
     // indexed at 0)
     int lastChip = NROWS - 1;
     int inaRow = 0;
-    for (int i = 0; i <= lastChip; i++)
+    for (int i = 0; i < NROWS; i++)
     {
         if (b[lastTurn][i] == lastPlayer)
         {
             inaRow ++;
             if (inaRow == WINNUM)
-            {
                 // The player that just went won
                 return lastPlayer;
-            }
         }
         else if (b[lastTurn][i] == EMPTY)
         {
@@ -235,11 +230,9 @@ int scoreBoard(board b, int lastTurn, int lastPlayer)
             lastChip = i - 1;
             break;
         }
-        else
-        {
-            // Opponents token is here
+        else // Opponents token here
             inaRow = 0;
-        }
+        
     }
     
     // Check row
@@ -253,15 +246,11 @@ int scoreBoard(board b, int lastTurn, int lastPlayer)
         {
             inaRow++;
             if (inaRow == WINNUM)
-            {
                 // last player who went just won
                 return lastPlayer;
-            }
         }
         else 
-        {
             inaRow = 0;
-        }
     }
 
     // Check diagonal (NW -> SE)
@@ -348,13 +337,9 @@ int scoreBoard(board b, int lastTurn, int lastPlayer)
 
     // Check if board is full -> DRAW
     for (int i = 0; i < NCOLS; i++)
-    {
         if (b[i][NROWS - 1] == EMPTY)
-        {
-            printf("IN PROGRESS");
             return INPROGRESS;
-        }
-    }
+            
     return DRAW;
 }
 
@@ -392,6 +377,9 @@ int getAiTurn(board b)
     int turn;
     //turn = rand() % NCOLS; // Generate random integer between 0 and 6
     turn = moveMinimax(b);
+    
+    printf("turn: %d, valid: %d", turn, isValidMove(b, turn));
+    
 
     return turn;
 }
@@ -402,15 +390,20 @@ int getAiTurn(board b)
 // player makes their move
 int moveMinimax(board b)
 {
-    int bestScore = -NCOLS * NROWS;
-    int bestMove = 0;
-
+    // Every score is garuanteed to be better than this, hence bestMove doesnt 
+    // need to be defined at this point.
+    int bestScore = -INFINITY;
+    int bestMove;
+    printf("\n\n --------Calculating -------\n\n");
     for (int i = 0; i < NCOLS; i++)
     {
         if (isValidMove(b, i))
         {
             updateBoard(b, i, AI);
-            int score = minVal(b, i, 1, INFINITY, -INFINITY); // depth = 1
+            
+            printBoard(b);
+            int score = minVal(b, i, 1, -INFINITY, INFINITY); // depth = 1
+            printf("move: %d, score: %d\n", i, score);
             reverseMoveBoard(b, i);
 
             if (score > bestScore)
@@ -428,38 +421,33 @@ int maxVal(board b, int move, int depth, int alpha, int beta)
 {
     // Check terminal state
     int result = scoreBoard(b, move, PLAYER);
-    if (checkResult(result) != INPROGRESS)
+    if (result != INPROGRESS)
     {
-        // result is the outcome of the game (1 for AI win, 
-        // -1 for player win, and 0 for draw)
-        // multiplying by depth gives better score
-        int score = result * depth;
-        if (score > 0)
-            return (NCOLS * NROWS) - score;
-        else
-            return -(NCOLS * NROWS) - score;
+        //if (depth <= 3)
+        {
+        printf("--------------\nTERMINAL STATE\n-----------\n");
+        printBoard(b);
+        printf("result: %d\n", result);
+        }
+        return evalTerminalState(result, depth); //------ 0 means minimising
     }
-
+    
     int bestScore = -INFINITY;
 
     for (int i = 0; i < NCOLS; i++)
     {
         if (isValidMove(b, i))
         {
-            // Update board with new move
-            updateBoard(b, i, PLAYER);
+            updateBoard(b, i, AI);
+            if (depth <= 2)
+                printBoard(b);
 
-            // This player is the maximising player, so it takes the best 
-            // possible move taking into cosideration the other player is
-            // playing optimally 
             bestScore = max(bestScore, minVal(b, i, depth + 1, alpha, beta));
-            
-            // Reverse the move on the board
             reverseMoveBoard(b, i);
 
-            // Alpha-Beta pruning
+            //Alpha-Beta pruning
             if (bestScore >= beta)
-                return bestScore;
+                break;
             
             alpha = max(alpha, bestScore);
         }
@@ -472,41 +460,50 @@ int minVal(board b, int move, int depth, int alpha, int beta)
 {
     // Check terminal state
     int result = scoreBoard(b, move, AI);
-    if (checkResult(result) != INPROGRESS)
+
+    if (result != INPROGRESS)
     {
-        // result is the outcome of the game (1 for AI win, 
-        // -1 for player win, and 0 for draw)
-        // multiplying by depth gives better score
-        int score = result * depth;
-        if (score > 0)
-            return (NCOLS * NROWS) - score;
-        else
-            return -(NCOLS * NROWS) - score;
+        //if (depth <= 3)
+        {
+            printf("##############\nTERMINAL STATE\n##############\n");
+
+            printBoard(b);
+            printf("result: %d\n", result);
+        }
+
+        return evalTerminalState(result, depth); //---- 1 means maximising
     }
+    
     int bestScore = INFINITY;
+
     for (int i = 0; i < NCOLS; i++)
     {
         if (isValidMove(b, i))
         {
-            // Update board with new move
-            updateBoard(b, i, AI);
-
-            // This player is the minimising player, so it takes the best 
-            // possible move taking into cosideration the other player is
-            // playing optimally 
+            updateBoard(b, i, PLAYER);
+            if (depth <= 2)
+                printBoard(b);
             bestScore = min(bestScore, maxVal(b, i, depth + 1, alpha, beta));
-
-            // Reverse the move on the board
             reverseMoveBoard(b, i);
 
-            // Alpha-Beta pruning
+            //Alpha-Beta pruning
             if (bestScore <= alpha)
-                return bestScore;
+                break;
             
             beta = min(alpha, bestScore);
         }
     }
     return bestScore;
+}
+
+int evalTerminalState(int result, int depth)
+{
+    if (result == AI)
+        return (NCOLS * NROWS) - depth;
+    else if (result == PLAYER)
+        return (-NCOLS * NROWS) + depth;
+    else // result = DRAW
+        return DRAW;
 }
 
 int isValidMove(board b, int move)
@@ -522,6 +519,25 @@ int isValidMove(board b, int move)
     return VALID;
 }
 
+int isPlayerValidMove(board b, int move)
+{
+    // row is out of range
+    if (move < 0 || move >= NCOLS)
+    {
+        printf("invalid move, column out of board range\n");
+        return INVALID;
+    }
+    
+    // column is full
+    if (b[move][NROWS - 1] != EMPTY)
+    {
+        printf("invalid move, column full\n");
+        return INVALID;
+    }
+    
+    return VALID;
+}
+
 int checkResult(int result)
 {
     // a vast majority of positions will be in progress rather than in an end 
@@ -530,32 +546,27 @@ int checkResult(int result)
     if (result != INPROGRESS)
     {
         if (result == DRAW)
-        {
-            printf("DRAW\n");
             return 0;
-        }
+        
         if (result == AI)
-        {
-            printf("AI WINS");
             return 1;
-        }
+        
         if (result == PLAYER)
-        {
-            printf("HUMAN WINS");
             return -1;
-        }
     } 
     return INPROGRESS;
 }
 
+// return the higher of the two values
 int max(int a, int b)
 {
-    if (a > b) return a;
+    if (a >= b) return a;
     return b;
 }
 
+// return the lower of the two values
 int min(int a, int b)
 {
-    if (b > a) return a;
+    if (b >= a) return a;
     return b;
 }
